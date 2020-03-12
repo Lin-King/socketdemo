@@ -69,6 +69,7 @@ public class ClientActivity extends AppCompatActivity {
         mBtStart.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
+                stopServerSocket();
                 isStop = false;
                 mServerThread = new ServerThread();
                 mServerThread.start();

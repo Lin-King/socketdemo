@@ -25,6 +25,8 @@ import java.math.BigInteger;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.security.MessageDigest;
+import java.util.ArrayList;
+import java.util.List;
 
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
@@ -36,7 +38,8 @@ import androidx.appcompat.app.AppCompatActivity;
  */
 public class ServerActivity extends AppCompatActivity {
     ServerSocket serverSocket;//创建ServerSocket对象
-    Socket socket;
+    List<Socket> mSocketList;
+    //    Socket socket;
     private ServerThread mServerThread;
     private boolean isStop;
     private EditText mEtPort;
@@ -53,6 +56,7 @@ public class ServerActivity extends AppCompatActivity {
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_server);
+        mSocketList = new ArrayList<>();
         mTvIp = findViewById(R.id.tv_ip);
         mEtPort = findViewById(R.id.et_port);
         mEtMessage = findViewById(R.id.et_message);
@@ -83,15 +87,17 @@ public class ServerActivity extends AppCompatActivity {
                 new Thread(new Runnable() {
                     @Override
                     public void run() {
-                        try {
-                            if (socket == null) return;
-                            OutputStream om = socket.getOutputStream();
-                            PrintWriter writer = new PrintWriter(om, true);//告诉客户端连接成功 并传状态过去
-                            writer.write(returnServer + "\n");
-                            writer.flush();
-                        } catch (Exception e) {
-                            e.printStackTrace();
-                            Log.i("Lin", e.toString());
+                        for (Socket socket : mSocketList) {
+                            try {
+                                if (socket == null) return;
+                                OutputStream om = socket.getOutputStream();
+                                PrintWriter writer = new PrintWriter(om, true);//告诉客户端连接成功 并传状态过去
+                                writer.write(returnServer + "\n");
+                                writer.flush();
+                            } catch (Exception e) {
+                                e.printStackTrace();
+                                Log.i("Lin", e.toString());
+                            }
                         }
                     }
                 }).start();
@@ -108,8 +114,10 @@ public class ServerActivity extends AppCompatActivity {
     private void stopServerSocket() {
         isStop = true;
         try {
-            if (socket != null) {
-                socket.close();
+            for (Socket socket : mSocketList) {
+                if (socket != null) {
+                    socket.close();
+                }
             }
             if (serverSocket != null && !serverSocket.isClosed()) {
                 serverSocket.close();
@@ -143,111 +151,125 @@ public class ServerActivity extends AppCompatActivity {
                         Log.i("Lin", "启动服务");
                     }
                 });
-                //等待客户端的连接请求
-                socket = serverSocket.accept();
-                final String socketAddress = socket.getRemoteSocketAddress().toString();
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        Toast.makeText(ServerActivity.this, "成功建立与客户端的连接 : " + socketAddress, Toast.LENGTH_SHORT).show();
-                        Log.i("Lin", "成功建立与客户端的连接 : " + socketAddress);
-                    }
-                });
                 while (!isStop) {
-                    InputStream inputStream = socket.getInputStream();
-//                    BufferedInputStream inputStream = new BufferedInputStream(socket.getInputStream());
-                    String type = "";
-                    byte[] typebytes = new byte[Constant.SERVER_TYPE];
-                    if (inputStream.read(typebytes) != -1) {
-                        type = nullOfString(new String(typebytes));
-                    }
-
-                    switch (type) {
-                        case Constant.SERVER_TEXT:
-                            byte[] bytes = new byte[1];
-                            StringBuilder info = new StringBuilder();
-                            while (inputStream.read(bytes) != -1) {
-                                String str = new String(bytes);
-                                if (str.equals("\n")) {
-                                    break;
-                                }
-                                info.append(new String(bytes));
-                            }
-                            final String finalInfo = info.toString();
-                            Log.i("Lin", "text = " + finalInfo);
-                            runOnUiThread(new Runnable() {
-                                @Override
-                                public void run() {
-                                    mEtReceive.setText(mEtReceive.getText().toString() + socketAddress + " : " + finalInfo + "\n");
-                                }
-                            });
-                            break;
-                        case Constant.SERVER_FILE:
-                            byte[] remote = new byte[32];
-                            String md5 = "";
-                            if (inputStream.read(remote) != -1) {
-                                md5 = nullOfString(new String(remote));
-                            }
-
-                            final String root = Environment.getExternalStorageDirectory().getPath();
-                            Log.i("Lin", root);
-                            byte[] inputByte = new byte[1024 * 1024];
-                            int len = 0;
-                            long fileSize = 0;
-
-                            DataInputStream dis = new DataInputStream(inputStream);
-                            // 文件名和长度
-                            String fileName = dis.readUTF();
-                            final long fileLength = dis.readLong();
-                            Log.i("Lin", "fileName = " + fileName);
-                            Log.i("Lin", "fileLength = " + fileLength);
-                            mPath = root + "/ECG/" + fileName;
-                            File file = new File(root + "/ECG/");
-                            if (!file.exists()) file.mkdir();
-                            file = new File(mPath);
-                            FileOutputStream fileOutputStream = new FileOutputStream(file);
-                            String fileMD5 = nullOfString(getFileMD5(new File(mPath)));
-                            while (!md5.equals(fileMD5) && (len = dis.read(inputByte, 0, inputByte.length)) > 0) {
-                                fileSize += len;
-                                fileOutputStream.write(inputByte, 0, len);
-                                fileOutputStream.flush();
-                                fileMD5 = nullOfString(getFileMD5(new File(mPath)));
-                                Log.i("Lin", "md5 = " + md5 + " file = " + fileMD5);
-                                Log.i("Lin", "fileLength = " + fileLength + " fileSize = " + fileSize + " " + (fileSize * 100 / fileLength) + "%")
-                                ;
-                                final long finalFileSize = fileSize;
-                                runOnUiThread(new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        mProgressDialog.setMessage((finalFileSize * 100 / fileLength) + "%");
-                                        mProgressDialog.show();
+                    //等待客户端的连接请求
+                    final Socket socket = serverSocket.accept();
+                    mSocketList.add(socket);
+                    final String socketAddress = socket.getRemoteSocketAddress().toString();
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            Toast.makeText(ServerActivity.this, "成功建立与客户端的连接 : " + socketAddress, Toast.LENGTH_SHORT).show();
+                            Log.i("Lin", "成功建立与客户端的连接 : " + socketAddress);
+                        }
+                    });
+                    new Thread(new Runnable() {
+                        @Override
+                        public void run() {
+                            while (!isStop) try {
+                                {
+                                    InputStream inputStream = socket.getInputStream();
+                                    //                    BufferedInputStream inputStream = new BufferedInputStream(socket.getInputStream());
+                                    String type = "";
+                                    byte[] typebytes = new byte[Constant.SERVER_TYPE];
+                                    if (inputStream.read(typebytes) != -1) {
+                                        type = nullOfString(new String(typebytes));
                                     }
-                                });
-                                if (md5.equals(fileMD5)) {
-                                    fileOutputStream.close();
-                                    runOnUiThread(new Runnable() {
-                                        @Override
-                                        public void run() {
-                                            mProgressDialog.hide();
-                                        }
-                                    });
+
+                                    switch (type) {
+                                        case Constant.SERVER_TEXT:
+                                            byte[] bytes = new byte[1];
+                                            StringBuilder info = new StringBuilder();
+                                            while (inputStream.read(bytes) != -1) {
+                                                String str = new String(bytes);
+                                                if (str.equals("\n")) {
+                                                    break;
+                                                }
+                                                info.append(new String(bytes));
+                                            }
+                                            final String finalInfo = info.toString();
+                                            Log.i("Lin", "text = " + finalInfo);
+                                            runOnUiThread(new Runnable() {
+                                                @Override
+                                                public void run() {
+                                                    mEtReceive.setText(mEtReceive.getText().toString() + socketAddress + " : " + finalInfo + "\n");
+                                                }
+                                            });
+                                            break;
+                                        case Constant.SERVER_FILE:
+                                            byte[] remote = new byte[32];
+                                            String md5 = "";
+                                            if (inputStream.read(remote) != -1) {
+                                                md5 = nullOfString(new String(remote));
+                                            }
+
+                                            final String root = Environment.getExternalStorageDirectory().getPath();
+                                            Log.i("Lin", root);
+                                            byte[] inputByte = new byte[1024 * 1024];
+                                            int len = 0;
+                                            long fileSize = 0;
+
+                                            DataInputStream dis = new DataInputStream(inputStream);
+                                            // 文件名和长度
+                                            String fileName = dis.readUTF();
+                                            final long fileLength = dis.readLong();
+                                            Log.i("Lin", "fileName = " + fileName);
+                                            Log.i("Lin", "fileLength = " + fileLength);
+                                            mPath = root + "/ECG/" + fileName;
+                                            File file = new File(root + "/ECG/");
+                                            if (!file.exists()) file.mkdir();
+                                            file = new File(mPath);
+                                            FileOutputStream fileOutputStream = new FileOutputStream(file);
+                                            String fileMD5 = nullOfString(getFileMD5(new File(mPath)));
+                                            while (!md5.equals(fileMD5) && (len = dis.read(inputByte, 0, inputByte.length)) > 0) {
+                                                fileSize += len;
+                                                fileOutputStream.write(inputByte, 0, len);
+                                                fileOutputStream.flush();
+                                                fileMD5 = nullOfString(getFileMD5(new File(mPath)));
+                                                Log.i("Lin", "md5 = " + md5 + " file = " + fileMD5);
+                                                Log.i("Lin", "fileLength = " + fileLength + " fileSize = " + fileSize + " " + (fileSize * 100 / fileLength) + "%")
+                                                ;
+                                                final long finalFileSize = fileSize;
+                                                runOnUiThread(new Runnable() {
+                                                    @Override
+                                                    public void run() {
+                                                        mProgressDialog.setMessage((finalFileSize * 100 / fileLength) + "%");
+                                                        mProgressDialog.show();
+                                                    }
+                                                });
+                                                if (md5.equals(fileMD5)) {
+                                                    fileOutputStream.close();
+                                                    runOnUiThread(new Runnable() {
+                                                        @Override
+                                                        public void run() {
+                                                            mProgressDialog.hide();
+                                                        }
+                                                    });
+                                                }
+                                            }
+                                            Log.i("Lin", "md52 = " + md5 + " file2 = " + getFileMD5(file));
+                                            fileMD5 = nullOfString(getFileMD5(new File(mPath)));
+                                            Log.i("Lin", "file = " + fileMD5);
+                                            final String finalFileMD = fileMD5;
+                                            final String finalMd = md5;
+                                            runOnUiThread(new Runnable() {
+                                                @Override
+                                                public void run() {
+                                                    mEtReceive.setText(mEtReceive.getText().toString() + "文件路径：" + mPath + "\n");
+                                                    mEtReceive.setText(mEtReceive.getText().toString() + "file = " + finalFileMD + "\n");
+                                                    mEtReceive.setText(mEtReceive.getText().toString() + "text = " + finalMd + "\n");
+                                                }
+                                            });
+                                            break;
+                                    }
                                 }
+                            } catch (IOException e) {
+                                e.printStackTrace();
+                                Log.i("Lin", e.toString());
                             }
-                            Log.i("Lin", "md52 = " + md5 + " file2 = " + getFileMD5(file));
-                            fileMD5 = nullOfString(getFileMD5(new File(mPath)));
-                            Log.i("Lin", "file = " + fileMD5);
-                            final String finalFileMD = fileMD5;
-                            final String finalMd = md5;
-                            runOnUiThread(new Runnable() {
-                                @Override
-                                public void run() {
-                                    mEtReceive.setText(mEtReceive.getText().toString() + "文件路径：" + mPath + "\n");
-                                    mEtReceive.setText(mEtReceive.getText().toString() + "file = " + finalFileMD + "\n");
-                                    mEtReceive.setText(mEtReceive.getText().toString() + "text = " + finalMd + "\n");
-                                }
-                            });
-                            break;
-                    }
+                        }
+                    }).start();
+
                 }
             } catch (Exception e) {
                 e.printStackTrace();
